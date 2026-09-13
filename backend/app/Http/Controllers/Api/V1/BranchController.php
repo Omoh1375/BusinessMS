@@ -3,16 +3,18 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\StoreBranchRequest;
+use App\Http\Requests\UpdateBranchRequest;
 use App\Models\Branch;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Validator;
-use Illuminate\Validation\Rule;
+use Illuminate\Support\Facades\Gate;
 
 class BranchController extends Controller
 {
     public function index(): JsonResponse
     {
+        Gate::authorize('viewAny', Branch::class);
+
         $business = app('currentBusiness');
 
         $branches = $business->branches()
@@ -27,74 +29,13 @@ class BranchController extends Controller
         ]);
     }
 
-    public function store(Request $request): JsonResponse
+    public function store(StoreBranchRequest $request): JsonResponse
     {
+        Gate::authorize('create', Branch::class);
+
         $business = app('currentBusiness');
 
-        $validator = Validator::make($request->all(), [
-            'name' => [
-                'required',
-                'string',
-                'max:255',
-            ],
-
-            'code' => [
-                'required',
-                'string',
-                'max:50',
-                Rule::unique('branches', 'code')
-                    ->where('business_id', $business->id),
-            ],
-
-            'phone' => [
-                'nullable',
-                'string',
-                'max:30',
-            ],
-
-            'email' => [
-                'nullable',
-                'email',
-                'max:255',
-            ],
-
-            'address' => [
-                'nullable',
-                'string',
-            ],
-
-            'city' => [
-                'nullable',
-                'string',
-                'max:100',
-            ],
-
-            'state' => [
-                'nullable',
-                'string',
-                'max:100',
-            ],
-
-            'country' => [
-                'nullable',
-                'string',
-                'max:100',
-            ],
-
-            'is_main' => [
-                'sometimes',
-                'boolean',
-            ],
-        ]);
-
-        if ($validator->fails()) {
-            return response()->json([
-                'message' => 'Validation failed.',
-                'errors' => $validator->errors(),
-            ], 422);
-        }
-
-        $data = $validator->validated();
+        $data = $request->validated();
 
         if (($data['is_main'] ?? false) === true) {
             $business->branches()
@@ -106,7 +47,7 @@ class BranchController extends Controller
 
         $branch = $business->branches()->create([
             ...$data,
-            'country' => $data['country'] ?? $business->country,
+            'country' => $data['country'] ?? $business->country ?? 'Nigeria',
             'is_active' => true,
         ]);
 
@@ -120,7 +61,7 @@ class BranchController extends Controller
 
     public function show(Branch $branch): JsonResponse
     {
-        $this->ensureBranchBelongsToCurrentBusiness($branch);
+        Gate::authorize('view', $branch);
 
         return response()->json([
             'message' => 'Branch retrieved successfully.',
@@ -130,84 +71,15 @@ class BranchController extends Controller
         ]);
     }
 
-    public function update(Request $request, Branch $branch): JsonResponse
-    {
-        $this->ensureBranchBelongsToCurrentBusiness($branch);
+    public function update(
+        UpdateBranchRequest $request,
+        Branch $branch
+    ): JsonResponse {
+        Gate::authorize('update', $branch);
 
         $business = app('currentBusiness');
 
-        $validator = Validator::make($request->all(), [
-            'name' => [
-                'sometimes',
-                'required',
-                'string',
-                'max:255',
-            ],
-
-            'code' => [
-                'sometimes',
-                'required',
-                'string',
-                'max:50',
-                Rule::unique('branches', 'code')
-                    ->where('business_id', $business->id)
-                    ->ignore($branch->id),
-            ],
-
-            'phone' => [
-                'nullable',
-                'string',
-                'max:30',
-            ],
-
-            'email' => [
-                'nullable',
-                'email',
-                'max:255',
-            ],
-
-            'address' => [
-                'nullable',
-                'string',
-            ],
-
-            'city' => [
-                'nullable',
-                'string',
-                'max:100',
-            ],
-
-            'state' => [
-                'nullable',
-                'string',
-                'max:100',
-            ],
-
-            'country' => [
-                'nullable',
-                'string',
-                'max:100',
-            ],
-
-            'is_main' => [
-                'sometimes',
-                'boolean',
-            ],
-
-            'is_active' => [
-                'sometimes',
-                'boolean',
-            ],
-        ]);
-
-        if ($validator->fails()) {
-            return response()->json([
-                'message' => 'Validation failed.',
-                'errors' => $validator->errors(),
-            ], 422);
-        }
-
-        $data = $validator->validated();
+        $data = $request->validated();
 
         if (($data['is_main'] ?? false) === true) {
             $business->branches()
@@ -230,7 +102,7 @@ class BranchController extends Controller
 
     public function destroy(Branch $branch): JsonResponse
     {
-        $this->ensureBranchBelongsToCurrentBusiness($branch);
+        Gate::authorize('delete', $branch);
 
         if ($branch->is_main) {
             return response()->json([
@@ -243,15 +115,5 @@ class BranchController extends Controller
         return response()->json([
             'message' => 'Branch deleted successfully.',
         ]);
-    }
-
-    private function ensureBranchBelongsToCurrentBusiness(Branch $branch): void
-    {
-        $business = app('currentBusiness');
-
-        abort_unless(
-            $branch->business_id === $business->id,
-            404
-        );
     }
 }
